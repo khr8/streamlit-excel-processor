@@ -21,7 +21,7 @@ API_BASE_URL = "https://v6.exchangerate-api.com/v6"
 
 def get_rate_to_inr(base_currency):
     code = base_currency.strip().upper()
-    alias = {"RS": "INR", "RS.": "INR", "UKP": "GBP", "EU": "EUR", "£": "EUR", "$": "USD"}
+    alias = {"RS": "INR", "RS.": "INR", "UKP": "GBP", "EU": "EUR", "€": "EUR", "£": "GBP", "$": "USD"}
     if code in alias:
         code = alias[code]
     if code == "INR":
