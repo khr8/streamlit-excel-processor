@@ -4,7 +4,6 @@ import openpyxl
 import requests
 
 STANDARD_COLUMNS = ["ISBN", "TITLE", "AUTHOR", "PUBLISHER", "STOCK", "CURRENCY", "PRICE", "COMPANY", "HANDLING"]
-
 COMPANY_OPTIONS = {
     "Adarsh": "2",
     "Adhya": "2",
@@ -15,9 +14,8 @@ COMPANY_OPTIONS = {
     "IBD": "2",
     "GBD": "2",
     "ECP": "2",
-    "UCP": "2"
+    "VCP": "2"
 }
-
 API_KEY = "de86638281a545de980629c5"
 API_BASE_URL = "https://v6.exchangerate-api.com/v6"
 
@@ -34,11 +32,7 @@ def get_rate_to_inr(base_currency):
         data = response.json()
         if data.get("result") == "success":
             rate = data["conversion_rates"].get("INR", None)
-            if rate is not None:
-                return rate
-            else:
-                st.warning(f"INR rate not found for base {base_currency}. Using fallback rate 1.0")
-                return 1.0
+            return rate if rate is not None else (st.warning(f"INR rate not found for base {base_currency}. Using fallback rate 1.0"), 1.0)[1]
         else:
             st.warning(f"API error for base {base_currency}: {data.get('error-type', 'Unknown error')}. Using fallback rate 1.0")
             return 1.0
@@ -69,11 +63,10 @@ if uploaded_files:
                 assigned = True
             if not assigned:
                 for std in STANDARD_COLUMNS:
-                    if std.lower() in col.lower():
-                        if std not in mapping_suggestion.values():
-                            mapping_suggestion[col] = std
-                            assigned = True
-                            break
+                    if std.lower() in col.lower() and std not in mapping_suggestion.values():
+                        mapping_suggestion[col] = std
+                        assigned = True
+                        break
             if not assigned:
                 mapping_suggestion[col] = None
         st.subheader(f"Column Mapping for {file.name}")
@@ -81,12 +74,7 @@ if uploaded_files:
         assigned_standard = []
         duplicate_assigned = []
         for col in original_columns:
-            selected = st.selectbox(
-                f"Assign '{col}' to:",
-                ["(Leave Blank)"] + STANDARD_COLUMNS,
-                index=(STANDARD_COLUMNS.index(mapping_suggestion[col]) + 1) if (mapping_suggestion[col] in STANDARD_COLUMNS) else 0,
-                key=f"{file.name}_mapping_{col}"
-            )
+            selected = st.selectbox(f"Assign '{col}' to:", ["(Leave Blank)"] + STANDARD_COLUMNS, index=(STANDARD_COLUMNS.index(mapping_suggestion[col]) + 1) if mapping_suggestion[col] in STANDARD_COLUMNS else 0, key=f"{file.name}_mapping_{col}")
             final_mapping[col] = selected
             if selected != "(Leave Blank)":
                 if selected in assigned_standard:
@@ -112,24 +100,22 @@ if uploaded_files:
                     st.warning(f"No columns selected for {fname}; skipping this file.")
                     continue
                 df = df[selected_cols]
-                df.loc[:, "COMPANY"] = company
-                df.loc[:, "HANDLING"] = COMPANY_OPTIONS[company]
+                df["COMPANY"] = company
+                df["HANDLING"] = COMPANY_OPTIONS[company]
                 df.reset_index(drop=True, inplace=True)
                 merged_dfs.append(df)
             if merged_dfs:
                 merged_df = pd.concat(merged_dfs, ignore_index=True)
                 merged_df = merged_df.reindex(columns=[col for col in STANDARD_COLUMNS if col in merged_df.columns])
                 if "ISBN" in merged_df.columns:
-                    merged_df["ISBN"] = merged_df["ISBN"].astype(str)
-                    merged_df["ISBN"] = merged_df["ISBN"].replace(["nan", "NaN"], pd.NA)
+                    merged_df["ISBN"] = merged_df["ISBN"].astype(str).replace(["nan", "NaN"], pd.NA)
                 for col in ["PRICE", "STOCK"]:
                     if col in merged_df.columns:
                         merged_df[col] = pd.to_numeric(merged_df[col], errors="coerce")
-                clean_cols = ["PRICE", "ISBN", "CURRENCY", "STOCK"]
-                for col in clean_cols:
+                for col in ["PRICE", "ISBN", "CURRENCY", "STOCK"]:
                     if col in merged_df.columns:
                         merged_df[col] = merged_df[col].replace("", pd.NA)
-                merged_df.dropna(subset=clean_cols, inplace=True)
+                merged_df.dropna(subset=["PRICE", "ISBN", "CURRENCY", "STOCK"], inplace=True)
                 for col in ["PRICE", "STOCK"]:
                     if col in merged_df.columns:
                         merged_df = merged_df[merged_df[col] != 0]
@@ -140,15 +126,36 @@ if uploaded_files:
                     merged_df = merged_df[~merged_df["CURRENCY"].str.strip().str.match(r'^-?\d+(\.\d+)?$')]
                 if "CURRENCY" in merged_df.columns and "PRICE" in merged_df.columns:
                     unique_currencies = merged_df["CURRENCY"].dropna().str.strip().str.upper().unique()
-                    conversion_dict = {}
-                    for cur in unique_currencies:
-                        conversion_dict[cur] = get_rate_to_inr(cur)
-                    def convert_price(row):
-                        cur = row["CURRENCY"].strip().upper()
-                        rate = conversion_dict.get(cur, 1.0)
-                        return row["PRICE"] * rate
-                    merged_df["PRICE"] = merged_df.apply(convert_price, axis=1)
+                    conversion_dict = {cur: get_rate_to_inr(cur) for cur in unique_currencies}
+                    merged_df["PRICE"] = merged_df.apply(lambda row: row["PRICE"] * conversion_dict.get(row["CURRENCY"].strip().upper(), 1.0), axis=1)
                     merged_df["CURRENCY"] = "INR"
+                def meets_threshold(row):
+                    comp = row["COMPANY"].strip().lower()
+                    stock = row["STOCK"]
+                    if comp == "adarsh":
+                        return stock >= 10
+                    elif comp == "adhya":
+                        return stock >= 2
+                    elif comp == "udh":
+                        return True
+                    elif comp == "rupa":
+                        return stock >= 5
+                    elif comp == "prakash delhi":
+                        return stock >= 4
+                    elif comp == "prakash noida":
+                        return stock >= 4
+                    elif comp == "ibd":
+                        return stock >= 3
+                    elif comp == "gbd":
+                        return stock >= 5
+                    elif comp == "ecp":
+                        return True
+                    elif comp == "vcp":
+                        return stock >= 3
+                    else:
+                        return True
+                merged_df = merged_df[merged_df.apply(meets_threshold, axis=1)]
+                merged_df.loc[merged_df["COMPANY"].str.strip().str.lower() == "vcp", "COMPANY"] = "VCP"
                 st.subheader("Final Processed Data")
                 st.dataframe(merged_df)
                 csv = merged_df.to_csv(index=False).encode("utf-8")
