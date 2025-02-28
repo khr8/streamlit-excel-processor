@@ -108,6 +108,7 @@ if uploaded_files:
                 merged_df = pd.concat(merged_dfs, ignore_index=True)
                 merged_df = merged_df.reindex(columns=[col for col in STANDARD_COLUMNS if col in merged_df.columns])
                 if "ISBN" in merged_df.columns:
+                    merged_df.drop_duplicates(subset=["ISBN"], keep="first", inplace=True)
                     merged_df["ISBN"] = merged_df["ISBN"].astype(str).replace(["nan", "NaN"], pd.NA)
                 for col in ["PRICE", "STOCK"]:
                     if col in merged_df.columns:
